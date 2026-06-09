@@ -1,0 +1,58 @@
+// CLI エントリポイント — NDJSON で recall 結果の整形 / フォールバックを行う。
+//
+// stdin: 1 行 1 コマンド (Codec JSON)
+//   {"op":"gate","result":{...RecallResult...},"cap":4}   → recent を絞った結果
+//   {"op":"empty","user":{...MemoryUser...}}              → 既知ユーザの記憶なし結果
+//   {"op":"empty_new","user_id":7,"name":"ねこ","ts":100} → 新規ユーザの記憶なし結果
+//
+// stdout: いずれも {...RecallResult...} を 1 行で返す。
+// cap 省略時は既定 (RECENT_CAP=4)。EOF で終了。不正行は stderr 警告で読み飛ばす。
+
+import self as gate
+import fizz_protocol.memory
+import io
+import json
+import value
+import result
+import string
+
+local fn field(v: Value, k: String) -> Value = value.get(v, k) ?? value.null()
+local fn fstr(v: Value, k: String) -> String = result.unwrap_or(value.as_string(field(v, k)), "")
+local fn fint(v: Value, k: String) -> Int = result.unwrap_or(value.as_int(field(v, k)), 0)
+local fn fopt_int(v: Value, k: String) -> Option[Int] = result.to_option(value.as_int(field(v, k)))
+
+effect fn main() -> Unit = {
+  var open = true
+  while open {
+    let line = io.read_line()
+    if string.trim(line) == "" then {
+      open = false
+    } else {
+      match json.parse(line) {
+        err(e) => eprintln("[recall-gate] bad json: ${e}"),
+        ok(v)  => {
+          let op = fstr(v, "op")
+          if op == "gate" then {
+            match memory.recall_decode(field(v, "result")) {
+              err(e) => eprintln("[recall-gate] bad result: ${e}"),
+              ok(r)  => {
+                let cap = fopt_int(v, "cap") ?? gate.RECENT_CAP
+                println(memory.recall_to_json(gate.gate(r, cap)))
+              },
+            }
+          } else if op == "empty" then {
+            match memory.user_decode(field(v, "user")) {
+              err(e) => eprintln("[recall-gate] bad user: ${e}"),
+              ok(u)  => println(memory.recall_to_json(gate.empty_for(u))),
+            }
+          } else if op == "empty_new" then {
+            let r = gate.empty_unknown(fint(v, "user_id"), fstr(v, "name"), fint(v, "ts"))
+            println(memory.recall_to_json(r))
+          } else {
+            eprintln("[recall-gate] unknown op: ${op}")
+          }
+        },
+      }
+    }
+  }
+}

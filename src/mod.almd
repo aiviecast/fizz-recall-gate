@@ -1,0 +1,56 @@
+// fizz_recall_gate — recall のデッドライン・ゲートと出力整形。
+//
+// 責務 (一行): recall の生結果を「brain が実際に使う最小限」に絞り、間に合わ
+// なかった時の「記憶なし」フォールバックを供給する。
+//
+// recall は hot path で 30ms デッドライン付き。L1/L2/session の参照が間に合えば
+// 生 RecallResult が組み上がるが、間に合わなければ orchestrator は記憶なしで
+// 進める必要がある。この部品は 2 つの役割を持つ:
+//
+//   1. gate(r, cap)  — 生結果の recent を直近 cap 件に絞る。会話は前の話題を
+//                      引きずらない方針なので、recall 全量はプロンプトに流さず
+//                      summary + 直近わずかだけを通す (RecallResult のコメント参照)。
+//   2. empty_*       — 記憶なしの well-formed な RecallResult を作る。デッドライン
+//                      超過・新規ユーザ時に downstream が常に整った形を受け取れる。
+//
+// 時間計測 (実際の 30ms 判定) は呼び出し側 (orchestrator) の責務。ここは純粋。
+
+import fizz_protocol.memory
+import list
+
+// brain に通す直近イベントの既定上限 (「直近わずか」)。
+let RECENT_CAP = 4
+
+// 生 RecallResult の recent を直近 cap 件 (古い順) に絞る。他のフィールドは素通し。
+fn gate(r: memory.RecallResult, cap: Int) -> memory.RecallResult = {
+  let c = if cap < 0 then 0 else cap
+  let n = list.len(r.recent)
+  let trimmed = if n <= c then r.recent else list.drop(r.recent, n - c)
+  memory.RecallResult {
+    user: r.user, recent: trimmed, is_returning: r.is_returning,
+    days_since_last_seen: r.days_since_last_seen, session_user_count: r.session_user_count,
+    session_started_at: r.session_started_at, total_user_count: r.total_user_count,
+    past_sessions: r.past_sessions, recent_sessions: r.recent_sessions, engagement: r.engagement,
+  }
+}
+
+// 既知ユーザに対する「記憶なし」結果 (デッドライン超過時)。
+fn empty_for(user: memory.MemoryUser) -> memory.RecallResult = {
+  let no_events: List[memory.MemoryEvent] = []
+  let no_parts: List[memory.SessionParticipation] = []
+  memory.RecallResult {
+    user: user, recent: no_events, is_returning: false,
+    days_since_last_seen: 0, session_user_count: 0, session_started_at: none,
+    total_user_count: user.message_count, past_sessions: none,
+    recent_sessions: no_parts, engagement: none,
+  }
+}
+
+// 未知ユーザ用のプレースホルダ user を作って「記憶なし」結果を返す (初見扱い)。
+fn empty_unknown(user_id: Int, name: String, now: Int) -> memory.RecallResult = {
+  let u = memory.MemoryUser {
+    id: user_id, name: name, first_seen: now, last_seen: now,
+    message_count: 0, summary: none, summary_updated_at: none,
+  }
+  empty_for(u)
+}
