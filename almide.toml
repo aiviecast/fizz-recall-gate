@@ -4,4 +4,4 @@ version = "0.1.0"
 description = "Fizz recall gate — trim a RecallResult to the brain budget (recent few) and provide the memory-less fallback when recall misses its deadline"
 
 [dependencies]
-fizz_protocol = { git = "https://github.com/Aid-On/fizz-protocol", tag = "v0.2.1" }
+fizz_protocol = { git = "https://github.com/aiviecast/fizz-protocol", tag = "v0.2.1" }
