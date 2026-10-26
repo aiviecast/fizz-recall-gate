@@ -16,7 +16,7 @@ import value
 import result
 import string
 
-local fn field(v: Value, k: String) -> Value = value.field(v, k) ?? value.null()
+local fn field(v: Value, k: String) -> Value = value.get(v, k) ?? value.null()
 local fn fstr(v: Value, k: String) -> String = result.unwrap_or(value.as_string(field(v, k)), "")
 local fn fint(v: Value, k: String) -> Int = result.unwrap_or(value.as_int(field(v, k)), 0)
 local fn fopt_int(v: Value, k: String) -> Option[Int] = result.to_option(value.as_int(field(v, k)))
@@ -24,7 +24,7 @@ local fn fopt_int(v: Value, k: String) -> Option[Int] = result.to_option(value.a
 effect fn main() -> Unit = {
   var open = true
   while open {
-    let line = io.read_line()
+    let line = io.read_line() ?? ""
     if string.trim(line) == "" then {
       open = false
     } else {
